@@ -1,0 +1,121 @@
+/* 1) Center the logo above the form */
+.gesfaturacao-form-wrapper {
+    max-width: 55%;       /* optional: limit form width */
+    margin: 0 auto;         /* center the entire wrapper on the page */
+    background: #f9f9f9;    /* same as before, or whatever you prefer */
+    padding: 20px;
+    border: 1px solid #e1e1e1;
+    border-radius: 4px;
+}
+
+.gesfaturacao-main-wrapper{
+    max-width: 100%;       /* optional: limit form width */
+    margin: 0 auto;         /* center the entire wrapper on the page */
+    background: #f9f9f9;    /* same as before, or whatever you prefer */
+    padding: 20px;
+    border: 1px solid #e1e1e1;
+    border-radius: 4px;
+}
+
+.gesfaturacao-logo-container {
+    text-align: center;     /* center the <img> horizontally */
+    margin-bottom: 20px;    /* space between logo and form fields */
+}
+
+.gesfaturacao-logo {
+    max-width: 225px;       /* exactly as you used previously */
+    height: auto;
+}
+
+/* 2) Center the submit button */
+.gesfaturacao-form .submit {
+    text-align: center;     /* center anything inside the <p class="submit"> */
+}
+
+.gesfaturacao-submit {
+    background-color: #000000;
+    color: #ffffff;
+    transition: background-color 0.3s;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    padding: 10px 30px;
+}
+
+.gesfaturacao-submit:hover {
+    background-color: #f2994b;
+}
+
+.button-pdf {
+    border-color: #cb1f26 !important;
+    color: #cb1f26 !important;
+    transition: background-color 0.3s;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    padding: 10px 30px;
+}
+
+.button-email {
+    border-color: #ee872b !important;
+    color: #ee872b !important;
+    transition: background-color 0.3s;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    padding: 10px 30px;
+}
+
+.button-email-sent {
+    border-color: #863430 !important;
+    color: #863430 !important;
+    transition: background-color 0.3s;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    padding: 10px 30px;
+}
+
+
+.button-ges:hover {
+    border-color: #000000 !important;
+    color: #000000 !important;
+}
+
+/* 3) (Optional) Tweak form-fields styling / spacing */
+.gesfaturacao-form .form-table th {
+    padding: 10px 0;
+}
+
+.gesfaturacao-form .form-table td {
+    padding: 10px 0;
+}
+
+/* 4) Preserve your input-addon styles */
+.input-container {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.input-container input[type="text"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+.input-addon {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    padding-right: 10px;
+    pointer-events: none;
+    color: #f2994b;
+}
+
+.input-addon .input-addon-text {
+    margin-left: 5px;
+}
