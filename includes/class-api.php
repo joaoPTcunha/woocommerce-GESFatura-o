@@ -232,11 +232,32 @@ class GesFaturacao_API {
 	}
 
 	/**
+	 * Get list of banks
+	 *
+	 * @param array $banks Optional parameters for the API request
+	 * @return mixed API response or WP_Error
+	 */
+	public function get_banks() {
+		return $this->request('/banks', 'GET');
+	}
+
+	/**
+	 * Get list of payment methods
+	 *
+	 * @param array $payment_methods Optional parameters for the API request
+	 * @return mixed API response or WP_Error
+	 */
+	public function get_payment_methods() {
+		return $this->request('/payment-methods', 'GET');
+	}
+
+	/**
 	 * Validate the API token
 	 *
 	 * @return mixed API response or WP_Error
 	 *
 	 */
+	
 	public function validate_token($token = null, $domain =null, $api_version=null) {
 		return $this->request( 'validate-token', 'POST', null, $token, $domain, $api_version);
 	}
@@ -247,6 +268,7 @@ class GesFaturacao_API {
 	 * @return mixed API response or WP_Error
 	 *
 	 */
+
 	public function validate_domain($domain_data) {
 		// Calls the API to validate the Domain
 		$api_url_domain = "https://licencas.gesfaturacao.pt/server/auto/global_api.php";

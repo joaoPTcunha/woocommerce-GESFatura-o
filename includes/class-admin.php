@@ -63,6 +63,7 @@ class GESFaturacao_Admin {
 					'serie'       => '',
 					'finalize'    => false,
 					'email'       => false,
+					'payment_map' => [],
 				],
 			]
 		);
@@ -131,6 +132,15 @@ class GESFaturacao_Admin {
 			'gesfaturacao_main_section'
 		);
 
+		// Payment Map
+		add_settings_field(
+			'gesfaturacao_payment_map',
+			'Mapeamento de Métodos de Pagamento',
+			[ $this, 'field_payment_map_cb' ],
+			'gesfaturacao-main',
+			'gesfaturacao_main_section'
+		);
+
 	}
 
 	/**
@@ -163,6 +173,7 @@ class GESFaturacao_Admin {
 		$sanitized['serie'] = isset($input['serie']) ? sanitize_text_field($input['serie']) : '';
 		$sanitized['finalize'] = !empty($input['finalize']);
 		$sanitized['email'] = !empty($input['email']);
+		$sanitized['payment_map'] = isset($input['payment_map']) ? $input['payment_map'] : [];
 
 		set_transient('gesfaturacao_has_errors', false, 0);
 		// Instantiate API class
@@ -211,6 +222,51 @@ class GESFaturacao_Admin {
 			);
 			set_transient('gesfaturacao_has_errors', true, 0); //
 			return $old_options; // revert to old
+		}
+
+		// Save payment mappings to database
+		if (!empty($sanitized['payment_map'])) {
+			global $wpdb;
+			$table_name = $wpdb->prefix . 'gesfaturacao_payment_map';
+
+			foreach ($sanitized['payment_map'] as $wc_gateway => $mapping) {
+				$ges_payment_id = isset($mapping['payment']) ? $mapping['payment'] : '';
+				$ges_bank_id = isset($mapping['bank']) ? $mapping['bank'] : '';
+
+				if (!empty($ges_payment_id) || !empty($ges_bank_id)) {
+					// Check if mapping already exists
+					$exists = $wpdb->get_var($wpdb->prepare(
+						"SELECT id_map FROM $table_name WHERE id_shop = 1 AND module_name = %s",
+						$wc_gateway
+					));
+
+					if ($exists) {
+						// Update existing mapping
+						$wpdb->update(
+							$table_name,
+							array(
+								'ges_payment_id' => $ges_payment_id,
+								'ges_bank_id' => $ges_bank_id
+							),
+							array('id_shop' => 1, 'module_name' => $wc_gateway),
+							array('%s', '%s'),
+							array('%d', '%s')
+						);
+					} else {
+						// Insert new mapping
+						$wpdb->insert(
+							$table_name,
+							array(
+								'id_shop' => 1,
+								'module_name' => $wc_gateway,
+								'ges_payment_id' => $ges_payment_id,
+								'ges_bank_id' => $ges_bank_id
+							),
+							array('%d', '%s', '%s', '%s')
+						);
+					}
+				}
+			}
 		}
 
 		// If all validation passes, return sanitized inputs to be saved
@@ -425,8 +481,93 @@ class GESFaturacao_Admin {
 	public function field_email_cb() {
 		$opts    = get_option( $this->option_name );
 		$checked = ! empty( $opts['email'] ) ? 'checked' : '';
-		echo '<input type="checkbox" name="gesfaturacao_options[email]" id="ges_email" 
+		echo '<input type="checkbox" name="gesfaturacao_options[email]" id="ges_email"
                     value="1" ' . $checked . '>';
+	}
+
+	/**
+	 * Field callback: Payment Map
+	 */
+	public function field_payment_map_cb() {
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'gesfaturacao_payment_map';
+
+		// Get WooCommerce payment gateways
+		$wc_gateways = [];
+		if (class_exists('WC_Payment_Gateways')) {
+			$gateways = WC()->payment_gateways()->get_available_payment_gateways();
+			foreach ($gateways as $gateway) {
+				$wc_gateways[$gateway->id] = $gateway->title;
+			}
+		}
+
+		// Get GESFaturacao payment methods
+		$api = new GesFaturacao_API();
+		$ges_payments = $api->get_payment_methods();
+		$ges_payment_options = [];
+		if (!is_wp_error($ges_payments) && isset($ges_payments['data'])) {
+			foreach ($ges_payments['data'] as $payment) {
+				$ges_payment_options[$payment['id']] = $payment['name'];
+			}
+		}
+
+		// Get GESFaturacao banks
+		$ges_banks = $api->get_banks();
+		$ges_bank_options = [];
+		if (!is_wp_error($ges_banks) && isset($ges_banks['data'])) {
+			foreach ($ges_banks['data'] as $bank) {
+				$ges_bank_options[$bank['id']] = $bank['name'];
+			}
+		}
+
+		// Get current mappings
+		$mappings = $wpdb->get_results("SELECT * FROM $table_name WHERE id_shop = 1", ARRAY_A);
+
+		echo '<div id="payment-map-container">';
+
+		echo '<table id="payment-map-table" style="width:100%; border-collapse: collapse; margin-top: 10px;">';
+		echo '<thead>';
+		echo '<tr style="background-color: #f1f1f1;">';
+		echo '<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Método de Pagamento WooCommerce</th>';
+		echo '<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Método de Pagamento GESFaturacao</th>';
+		echo '<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Banco</th>';
+		echo '</tr>';
+		echo '</thead>';
+		echo '<tbody>';
+
+		foreach ($wc_gateways as $wc_id => $wc_name) {
+			$current_mapping = array_filter($mappings, function($map) use ($wc_id) {
+				return $map['module_name'] === $wc_id;
+			});
+			$current_ges_payment_id = !empty($current_mapping) ? reset($current_mapping)['ges_payment_id'] : '';
+			$current_ges_bank_id = !empty($current_mapping) ? reset($current_mapping)['ges_bank_id'] : '';
+
+			echo '<tr>';
+			echo '<td style="border: 1px solid #ddd; padding: 8px;"><strong>' . esc_html($wc_name) . '</strong></td>';
+			echo '<td style="border: 1px solid #ddd; padding: 8px;">';
+			echo '<select name="gesfaturacao_options[payment_map][' . esc_attr($wc_id) . '][payment]" style="width: 100%; padding: 5px;">';
+			echo '<option value="">-- Selecionar método GESFaturacao --</option>';
+			foreach ($ges_payment_options as $ges_id => $ges_name) {
+				$selected = ($current_ges_payment_id == $ges_id) ? 'selected' : '';
+				echo '<option value="' . esc_attr($ges_id) . '" ' . $selected . '>' . esc_html($ges_name) . '</option>';
+			}
+			echo '</select>';
+			echo '</td>';
+			echo '<td style="border: 1px solid #ddd; padding: 8px;">';
+			echo '<select name="gesfaturacao_options[payment_map][' . esc_attr($wc_id) . '][bank]" style="width: 100%; padding: 5px;">';
+			echo '<option value="">-- Selecionar banco --</option>';
+			foreach ($ges_bank_options as $bank_id => $bank_name) {
+				$selected = ($current_ges_bank_id == $bank_id) ? 'selected' : '';
+				echo '<option value="' . esc_attr($bank_id) . '" ' . $selected . '>' . esc_html($bank_name) . '</option>';
+			}
+			echo '</select>';
+			echo '</td>';
+			echo '</tr>';
+		}
+
+		echo '</tbody>';
+		echo '</table>';
+		echo '</div>';
 	}
 
 	/**
@@ -520,4 +661,3 @@ class GESFaturacao_Admin {
 	}
 
 }
-

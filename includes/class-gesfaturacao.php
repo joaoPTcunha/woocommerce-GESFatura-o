@@ -49,13 +49,14 @@ class GESFaturacao {
 
 }
 
-function gesfaturacao_create_invoice_table() {
+function gesfaturacao_create_invoice_and_payment_map_table() {
 	global $wpdb;
 
-	$table_name = $wpdb->prefix . 'gesfaturacao_invoices';
 	$charset_collate = $wpdb->get_charset_collate();
 
-	$sql = "CREATE TABLE $table_name (
+	// Create gesfaturacao_invoices table
+	$table_name_invoices = $wpdb->prefix . 'gesfaturacao_invoices';
+	$sql_invoices = "CREATE TABLE $table_name_invoices (
 		id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 		order_id BIGINT(20) UNSIGNED NOT NULL,
 		invoice_id VARCHAR(100) NOT NULL,
@@ -66,6 +67,44 @@ function gesfaturacao_create_invoice_table() {
 		UNIQUE KEY order_id (order_id)
 	) $charset_collate;";
 
+	// Create gesfaturacao_payment_map table
+	$table_name_payment_map = $wpdb->prefix . 'gesfaturacao_payment_map';
+	$sql_payment_map = "CREATE TABLE $table_name_payment_map (
+		id_map int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+		id_shop int(11) UNSIGNED NOT NULL,
+		module_name varchar(64) NOT NULL,
+		ges_payment_id varchar(64) DEFAULT NULL,
+		ges_bank_id varchar(64) DEFAULT NULL,
+		PRIMARY KEY (id_map),
+		UNIQUE KEY id_shop_module (id_shop, module_name)
+	) $charset_collate;";
+
 	require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
-	dbDelta( $sql );
+	dbDelta( $sql_invoices );
+	dbDelta( $sql_payment_map );
+
+	// Get available WooCommerce payment gateways
+	if ( class_exists( 'WC_Payment_Gateways' ) ) {
+		$payment_gateways = WC()->payment_gateways()->get_available_payment_gateways();
+
+		// Populate gesfaturacao_payment_map with payment methods
+		foreach ( $payment_gateways as $gateway ) {
+			$gateway_id = $gateway->id;
+
+			// Check if already exists
+			$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id_map FROM $table_name_payment_map WHERE id_shop = 1 AND module_name = %s", $gateway_id ) );
+
+			if ( ! $exists ) {
+				$wpdb->insert(
+					$table_name_payment_map,
+					array(
+						'id_shop' => 1,
+						'module_name' => $gateway_id,
+						'ges_payment_id' => null,
+						'ges_bank_id' => null,
+					)
+				);
+			}
+		}
+	}
 }

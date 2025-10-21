@@ -12,4 +12,4 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-gesfaturacao.php';
 
 new GESFaturacao();
 
-register_activation_hook( __FILE__, 'gesfaturacao_create_invoice_table' );
+register_activation_hook( __FILE__, 'gesfaturacao_create_invoice_and_payment_map_table' );
