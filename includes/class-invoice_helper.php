@@ -194,6 +194,24 @@ class GesFaturacao_Invoice_Helper {
 		$finalize_invoice = $options['finalize'];
 		$send_email = $options['email'];
 
+		// Get payment mapping from database
+		$payment_method = $order->get_payment_method();
+		$table_name = $wpdb->prefix . 'gesfaturacao_payment_map';
+		$mapping = $wpdb->get_row($wpdb->prepare(
+			"SELECT ges_payment_id, ges_bank_id FROM $table_name WHERE id_shop = 1 AND module_name = %s",
+			$payment_method
+		), ARRAY_A);
+
+		if ($mapping) {
+			$ges_payment_id = $mapping['ges_payment_id'];
+			$ges_bank_id = $mapping['ges_bank_id'];
+			$needs_bank = !empty($ges_bank_id);
+		} else {
+			// Default if no mapping found
+			$ges_payment_id = '2';
+			$ges_bank_id = null;
+			$needs_bank = false;
+		}
 
 		// Prepare payload
 		$invoice_data = [
@@ -202,8 +220,9 @@ class GesFaturacao_Invoice_Helper {
 			'date' => current_time('d/m/Y'),
 			'expiration' => current_time('d/m/Y'),
 			'coin' => '1',
-			'payment' => '2',
-			'needsBank' => false,
+			'payment' => $ges_payment_id,
+			'needsBank' => $needs_bank,
+			'bank' => $ges_bank_id,
 			'lines' => json_encode($lines),
 			'finalize' => (bool)$finalize_invoice,
 		];
@@ -236,8 +255,8 @@ class GesFaturacao_Invoice_Helper {
 				$table_invoices,
 				[
 					'order_id'       => $order_id,
-					'invoice_id'     => $response['id'],         // from API
-					'invoice_number' => $response['number'],   // from API
+					'invoice_id'     => $response['id'],         
+					'invoice_number' => $response['number'],   
 					'created_at'     => current_time( 'mysql' ),
 				]
 			);
@@ -393,6 +412,24 @@ class GesFaturacao_Invoice_Helper {
 		$finalize_invoice = $options['finalize'];
 		$send_email = $options['email'];
 
+		// Get payment mapping from database
+		$payment_method = $order->get_payment_method();
+		$table_name = $wpdb->prefix . 'gesfaturacao_payment_map';
+		$mapping = $wpdb->get_row($wpdb->prepare(
+			"SELECT ges_payment_id, ges_bank_id FROM $table_name WHERE id_shop = 1 AND module_name = %s",
+			$payment_method
+		), ARRAY_A);
+
+		if ($mapping) {
+			$ges_payment_id = $mapping['ges_payment_id'];
+			$ges_bank_id = $mapping['ges_bank_id'];
+			$needs_bank = !empty($ges_bank_id);
+		} else {
+			// Default if no mapping found
+			$ges_payment_id = '2';
+			$ges_bank_id = null;
+			$needs_bank = false;
+		}
 
 		// Prepare payload
 		$invoice_data = [
@@ -401,8 +438,9 @@ class GesFaturacao_Invoice_Helper {
 			'date' => current_time('d/m/Y'),
 			'expiration' => current_time('d/m/Y'),
 			'coin' => '1',
-			'payment' => '2',
-			'needsBank' => false,
+			'payment' => $ges_payment_id,
+			'needsBank' => $needs_bank,
+			'bank' => $ges_bank_id,
 			'lines' => json_encode($lines),
 			'finalize' => (bool)$finalize_invoice,
 		];

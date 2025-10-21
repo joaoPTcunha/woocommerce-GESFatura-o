@@ -50,7 +50,7 @@ function gesfaturacao_setup_page() {
 			'headers' => [
 				'Authorization' => $token,
 			],
-			'timeout' => 10,
+			'timeout' => 5,
 		]);
 
 		// Default API result value

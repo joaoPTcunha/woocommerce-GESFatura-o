@@ -310,6 +310,9 @@ class GESFaturacao_Admin {
 		echo '<div class="wrap">';
 		echo '<h1 class="gesfaturacao-title">Configurações</h1>';
 
+		// Container for custom notices
+		echo '<div id="gesfaturacao-notices"></div>';
+
 		// Begin container for logo+form
 		echo '<div class="gesfaturacao-main-wrapper">';
 
@@ -505,9 +508,11 @@ class GESFaturacao_Admin {
 		$api = new GesFaturacao_API();
 		$ges_payments = $api->get_payment_methods();
 		$ges_payment_options = [];
+		$ges_payment_data = [];
 		if (!is_wp_error($ges_payments) && isset($ges_payments['data'])) {
 			foreach ($ges_payments['data'] as $payment) {
 				$ges_payment_options[$payment['id']] = $payment['name'];
+				$ges_payment_data[$payment['id']] = $payment;
 			}
 		}
 
@@ -545,16 +550,17 @@ class GESFaturacao_Admin {
 			echo '<tr>';
 			echo '<td style="border: 1px solid #ddd; padding: 8px;"><strong>' . esc_html($wc_name) . '</strong></td>';
 			echo '<td style="border: 1px solid #ddd; padding: 8px;">';
-			echo '<select name="gesfaturacao_options[payment_map][' . esc_attr($wc_id) . '][payment]" style="width: 100%; padding: 5px;">';
+			echo '<select name="gesfaturacao_options[payment_map][' . esc_attr($wc_id) . '][payment]" class="ges-payment-select" style="width: 100%; padding: 5px;" data-wc-name="' . esc_attr($wc_name) . '">';
 			echo '<option value="">-- Selecionar método GESFaturacao --</option>';
-			foreach ($ges_payment_options as $ges_id => $ges_name) {
+			foreach ($ges_payment_data as $ges_id => $payment) {
 				$selected = ($current_ges_payment_id == $ges_id) ? 'selected' : '';
-				echo '<option value="' . esc_attr($ges_id) . '" ' . $selected . '>' . esc_html($ges_name) . '</option>';
+				$needs_bank = $payment['needsBank'] ? 'true' : 'false';
+				echo '<option value="' . esc_attr($ges_id) . '" data-needs-bank="' . $needs_bank . '" ' . $selected . '>' . esc_html($payment['name']) . '</option>';
 			}
 			echo '</select>';
 			echo '</td>';
 			echo '<td style="border: 1px solid #ddd; padding: 8px;">';
-			echo '<select name="gesfaturacao_options[payment_map][' . esc_attr($wc_id) . '][bank]" style="width: 100%; padding: 5px;">';
+			echo '<select name="gesfaturacao_options[payment_map][' . esc_attr($wc_id) . '][bank]" class="ges-bank-select" style="width: 100%; padding: 5px;">';
 			echo '<option value="">-- Selecionar banco --</option>';
 			foreach ($ges_bank_options as $bank_id => $bank_name) {
 				$selected = ($current_ges_bank_id == $bank_id) ? 'selected' : '';
@@ -637,13 +643,22 @@ class GESFaturacao_Admin {
 		// Ensure jQuery is available
 		wp_enqueue_script( 'jquery' );
 
+		// Enqueue error_message.js
+		wp_enqueue_script(
+			'gesfaturacao-error-message',
+			plugin_dir_url( __FILE__ ) . '../js/error_message.js',
+			['jquery'],
+			GESFATURACAO_VERSION,
+			true
+		);
+
 		// Inline JS to auto‐fade any .notice.is-dismissible after 4 seconds
 		wp_add_inline_script( 'jquery', '
         jQuery(document).ready(function($) {
             setTimeout(function() {
                 $(".notice.is-dismissible").fadeOut();
             }, 4000);
-            
+
             function initSelect2() {
 				$("#api_version, #ges_serie").select2({
 					placeholder: "Escolha uma opção...",
@@ -655,6 +670,44 @@ class GESFaturacao_Admin {
 
 			// Initial load
 			initSelect2();
+
+			// Payment mapping validation
+			$(".gesfaturacao-form").on("submit", function(e) {
+				var valid = true;
+				$(".ges-payment-select").each(function() {
+					var selectedOption = $(this).find("option:selected");
+					var needsBank = selectedOption.data("needs-bank");
+					var bankSelect = $(this).closest("tr").find(".ges-bank-select");
+					var wcName = $(this).data("wc-name");
+
+					if (needsBank === true && !bankSelect.val()) {
+						wpAdminNotice("O método de pagamento WooCommerce \"" + wcName + "\" requer a seleção de um banco.", "error");
+						valid = false;
+						e.preventDefault();
+						return false;
+					}
+
+					if (needsBank === false && bankSelect.val()) {
+						wpAdminNotice("O método de pagamento \"" + wcName + "\" não usa banco.", "error");
+						valid = false;
+						e.preventDefault();
+						return false;
+					}
+				});
+			});
+
+			$(".ges-payment-select").on("change", function() {
+				var selectedOption = $(this).find("option:selected");
+				var needsBank = selectedOption.data("needs-bank");
+				var bankSelect = $(this).closest("tr").find(".ges-bank-select");
+
+				if (needsBank !== true) {
+					bankSelect.val("");
+				}
+			});
+
+			// Trigger on load for pre-selected values
+			$(".ges-payment-select").trigger("change");
         });
     ' );
 
