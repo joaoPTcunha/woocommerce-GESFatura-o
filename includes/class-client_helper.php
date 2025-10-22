@@ -1,107 +1,104 @@
 <?php
 
+
 if (!defined('ABSPATH')) exit;
 
 class GESFaturacao_client_helper
 {
-    function gesfaturacao_sync_client_with_api($client_id, $order_id) {
-        global $wpdb;
-        $api = new GESFaturacao_API();
+	function gesfaturacao_sync_client_with_api($client_id, $order_id) {
+		global $wpdb;
+		$api = new GESFaturacao_API();
 
-        // Initialize WooCommerce logger
-        $logger = wc_get_logger();
-        $context = array('source' => 'gesfaturacao-client-sync');
+		$order = wc_get_order($order_id);
+		//get order client meta data
+		//$user_meta = get_user_meta($user_id);
+		//$first_name = get_user_meta($client_id, 'billing_first_name', true) ?? "";
+		//$last_name  = get_user_meta($client_id, 'billing_last_name', true) ?? "";
+		$first_name = $order->get_billing_first_name();
+		$last_name  = $order->get_billing_last_name();
 
-        // Load the order
-        $order = wc_get_order($order_id);
-        if (!$order) {
-            $logger->error("Order ID {$order_id} not found.", $context);
-            return new WP_Error('invalid_order', 'Order not found', ['order_id' => $order_id]);
-        }
+		$name = trim($first_name . ' ' . $last_name);
+		error_log('GESF: Checking client exists for VAT: ' . $vat_number . ', Name: ' . $name);
+		//$user_meta = get_user_meta($client_id);
+		//echo '<pre>'; print_r($user_meta); echo '</pre>';
 
-        // Get billing information from order
-        $first_name = $order->get_billing_first_name();
-        $last_name = $order->get_billing_last_name();
-        $name = trim($first_name . ' ' . $last_name);
-        $vat_number = $order->get_meta('_billing_eu_vat_number') ?: '999999990';
+		// Common meta keys used by VAT plugins:
+		$vat_number = $order->get_meta('_billing_eu_vat_number') ?? '999999990';
 
-        // Check if client exists in the API
-        $api_result = $api->check_client_exists($vat_number, $name);
-        $logger->debug('API result for check_client_exists: ' . print_r($api_result, true), $context);
 
-        $exists = false;
-        $client_id = null;
 
-        if (is_wp_error($api_result)) {
-            $error_data = $api_result->get_error_data();
-            $response_code = $error_data['response_code'] ?? 0;
-            $error_message = $api_result->get_error_message();
-            $logger->error("API error checking client existence: {$error_message}, Response Code: {$response_code}", $context);
+		$api_result = $api->check_client_exists($vat_number, $name);
+		error_log('GESF: API result for check_client_exists: ' . print_r($api_result, true));
 
-            if ($response_code == 404) {
-                $exists = false;
-            } else {
-                $body = json_decode($error_data['body'], true) ?? [];
-                $error_message = $body['errors']['message'] ?? 'Unknown error';
-                $error_code = $body['errors']['code'] ?? '';
+		$exists = false;
 
-                if ($error_code == 'CLC_CLIENT_NOT_FOUND') {
-                    $exists = false;
-                } else {
-                    // Return error if not a "not found" case
-                    return new WP_Error('api_error', $error_message, ['error_code' => $error_code]);
-                }
-            }
-        } else {
-            $response = $api_result['data'];
+		if ( is_wp_error( $api_result ) ) {
+			$error_data = $api_result->get_error_data();
+			$response_code = $error_data['response_code'] ?? 0;
+			if($response_code == 404){
+				$exists=false;
+			} else{
+				$body = json_decode($error_data['body'], true); // decode JSON string to array
+				$error_message = isset($body['errors']['message']) ? $body['errors']['message'] : '';
+				$error_code = isset($body['errors']['code']) ? $body['errors']['code'] : '';
+				if ($error_code == 'CLC_CLIENT_NOT_FOUND') $exists=false;
+			}
+		} else{
+			$response = $api_result['data'];
 
-            if (is_array($response) && !empty($response) && isset($response[0]['id'])) {
-                $client_id = $response[0]['id']; 
-                $exists = true;
-            } elseif (isset($response['id'])) {
-                $client_id = $response['id'];
-                $exists = true;
-                $logger->info("Client found. ID: {$client_id}", $context);
-            } else {
-                $exists = false;
-            }
+			// Handle if response is an array (multiple clients) or object (single client)
+			if (is_array($response) && !empty($response) && isset($response[0]['id'])) {
+				$id = $response[0]['id']; // Take the first matching client
+				$exists = true;
+			} elseif (isset($response['id'])) {
+				$id = $response['id'];
+				$exists = true;
+			} else {
+				$exists = false;
+			}
 
-            if ($exists) {
-                return $client_id;
-            }
-        }
+			if ($exists) {
+				return $id;
+			}
+		}
 
-        $client_data = [
-            'name'       => $name,
-            'vatNumber'  => $vat_number,
-            'country'    => $order->get_billing_country(),
-            'address'    => $order->get_billing_address_1(),
-            'zipCode'    => $order->get_billing_postcode(),
-            'region'     => $order->get_billing_state(),
-            'city'       => $order->get_billing_city(),
-            'local'      => $order->get_billing_state(),
-            'email'      => $order->get_billing_email(),
-            'telephone'  => $order->get_billing_phone(),
-        ];
+		// If not found, prepare the data to create the client
+		/*$client = new WC_Customer($client_id);
 
-        $logger->info("Creating new client with data: " . print_r($client_data, true), $context);
+		$client_data = [
+			'name'       => "$first_name $last_name",
+			'vatNumber'  => $vat_number,
+			'country'  => $client->get_billing_country(),
+			'email'      => $client->get_billing_email(),
+			'telefone'   => $client->get_billing_phone(),
+			'address'     => $client->get_billing_address_1(),
+			'city' => $client->get_billing_city(),
+			'region' => $client->get_billing_state(),
+			'postalCode' => $client->get_billing_postcode(),
+			'local' => $client->get_billing_state(),
+		];*/
 
-        // Create client via API
-        $api_result = $api->create_client($client_data);
-        if (is_wp_error($api_result)) {
-            $error_message = $api_result->get_error_message();
-            $error_code = $api_result->get_error_data('error_code') ?? '';
-            wp_send_json_error(['message' => $error_message, 'error_code' => $error_code]);
-        }
+		$client_data = [
+			'name'       => "$first_name $last_name",
+			'vatNumber'  => $vat_number,
+			'country'    => $order->get_billing_country(),
+			'address'    => $order->get_billing_address_1(),
+			'zipCode'    => $order->get_billing_postcode(),
+			'region'     => $order->get_billing_state(),
+			'city'       => $order->get_billing_city(),
+			'local'      => $order->get_billing_state(),
+			'email'      => $order->get_billing_email(),
+			'telephone'  => $order->get_billing_phone(),
+		];
+		$api_result = $api->create_client($client_data);
+		if (is_wp_error($api_result)) {
+			error_log( 'Client creation error: ' . $api_result->get_error_message());
+			wp_send_json_error(['message' =>$api_result->get_error_message(), 'error_code' => $api_result['error_code'] ?? '']);
+		}
 
-        $response = $api_result['data'];
-        $client_id = $response['id'] ?? null;
+		$response = $api_result['data'];
 
-        if ($client_id) {
-            $logger->info("Client created successfully. ID: {$client_id}", $context);
-            return json_encode($client_id);
-        } else {
-            wp_send_json_error(['message' => 'Client creation failed: No ID returned', 'error_code' => 'no_id']);
-        }
-    }
+		return json_encode($response['id']);
+	}
+
 }

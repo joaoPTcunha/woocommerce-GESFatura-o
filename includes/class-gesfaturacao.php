@@ -33,6 +33,7 @@ class GESFaturacao {
 		require_once GESFATURACAO_PLUGIN_DIR . 'includes/class-product_helper.php';
 		require_once GESFATURACAO_PLUGIN_DIR . 'includes/class-client_helper.php';
 		require_once GESFATURACAO_PLUGIN_DIR . 'includes/class-orders_table.php';
+		require_once GESFATURACAO_PLUGIN_DIR . 'includes/class-shipping_helper.php';
 	}
 
 	public function init_hooks() {

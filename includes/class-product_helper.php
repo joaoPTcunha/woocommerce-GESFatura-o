@@ -21,8 +21,7 @@ class GESFaturacao_product_helper
 		$exists = false;
 		if (is_wp_error($api_result)) {
 			$error_data = $api_result->get_error_data();
-			$body = json_decode($error_data['body'], true); // decode JSON string to array
-			die(json_encode($body));
+			$body = json_decode($error_data['body'], true);
 			$error_message = isset($body['errors'][0]['message']) ? $body['errors'][0]['message'] : '';
 			$error_code = isset($body['errors'][0]['code']) ? $body['errors'][0]['code'] : '';
 
@@ -30,7 +29,6 @@ class GESFaturacao_product_helper
 		}else{
 			$response = $api_result['data'];
 
-			// Check if the client already exists (you may need to adapt this)
 
 			$id = $response['id'] ?? null;
 
@@ -53,10 +51,20 @@ class GESFaturacao_product_helper
 		//Get the order with the order ID
 		$product = wc_get_product($product_id);
 
+		if (!$product) {
+			error_log("Product with ID $product_id not found.");
+			return false;
+		}
+
+		$name = $product->get_name();
+		if (!$name) {
+			$name = 'Produto ' . $product_id;
+		}
+
 		//API payload
 		$product_data = [
 			'code' => "wc-$product_id",
-			'name' => $product->get_name(),
+			'name' => $name,
 			'type' => $type,
 			'unit' => '1',//1 is UN
 			'pvp' => $product->get_price(), //1 is EUR

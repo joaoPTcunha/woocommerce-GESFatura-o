@@ -21,10 +21,10 @@ class GesFaturacao_Shipping_Helper {
     }
 
     /**
-     * Get shipping cost for an order.
+     * Get shipping cost for an order (including tax).
      *
      * @param int $order_id The WooCommerce order ID.
-     * @return float The shipping cost.
+     * @return float The shipping cost including tax.
      */
     public function get_shipping_cost($order_id) {
         $order = wc_get_order($order_id);
@@ -32,6 +32,21 @@ class GesFaturacao_Shipping_Helper {
 
         $shipping_total = $order->get_shipping_total();
         return floatval($shipping_total);
+    }
+
+    /**
+     * Get shipping cost without VAT for an order.
+     *
+     * @param int $order_id The WooCommerce order ID.
+     * @return float The shipping cost excluding tax.
+     */
+    public function get_shipping_cost_without_vat($order_id) {
+        $order = wc_get_order($order_id);
+        if (!$order) return 0;
+
+        $shipping_total = $order->get_shipping_total();
+        $shipping_tax = $order->get_shipping_tax();
+        return floatval($shipping_total - $shipping_tax);
     }
 
     /**
@@ -58,23 +73,26 @@ class GesFaturacao_Shipping_Helper {
         $api_product_id = $products_helper->check_product_code($shipping_product_id);
         if (!$api_product_id) {
             $tax_id = 1; // Assume tax 1 for shipping
-            $api_product_id = $products_helper->create_product($shipping_product_id, $tax_id, 'P');
+            $api_product_id = $products_helper->create_product($shipping_product_id, $tax_id, 'S');
         }
 
         $options = get_option('gesfaturacao_options', []);
         $shipping_name = isset($options['shipping_name']) ? $options['shipping_name'] : $order->get_shipping_method();
 
-        return [
-            'id' => intval($api_product_id),
+        $shipping_cost_without_vat = $this->get_shipping_cost_without_vat($order_id);
+
+        $shipping_line = [
+            'id' => $api_product_id,
             'description' => substr($shipping_name, 0, 100),
             'quantity' => 1,
-            'price' => floatval($shipping_cost),
-            'tax' => 1, 
+            'price' => floatval($shipping_cost_without_vat),
+            'tax' => 1,
             'discount' => 0.0,
             'retention' => 0.0,
             'exemption' => 0,
             'unit' => 1,
-            'type' => 'P'
+            'type' => 'S'
         ];
+        return $shipping_line;
     }
 }

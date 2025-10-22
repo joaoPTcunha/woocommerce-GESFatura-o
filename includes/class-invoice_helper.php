@@ -19,46 +19,57 @@ class GesFaturacao_Invoice_Helper {
 		$api = new GesFaturacao_API();
 		$products = new GESFaturacao_product_helper();
 		$client = new GESFaturacao_client_helper();
-				
+
 		$logger = wc_get_logger();
 		$context = array( 'source' => 'Receipt Invoice logs' );
 
-		error_log( 'GESF: Debug: create_invoice_from_order called for order_id = ' . print_r( $order_id, true ) );
+		$logger->info( wp_json_encode( [ 'message' => '-------------------------------------------------------', 'order_id' => $order_id ] ), $context );
 
 		// Get WooCommerce order
 		$order = wc_get_order($order_id);
 
 		if ( ! function_exists( 'wc_get_order' ) ) {
+			$logger->error( wp_json_encode( [ 'message' => 'WooCommerce not active or loaded' ] ), $context );
 			return [
 				'success' => false,
 				'message' => 'WooCommerce não está ativo ou carregado.'
 			];
 		}
 		if (!$order_id) {
+			$logger->error( wp_json_encode( [ 'message' => 'Invalid order ID', 'order_id' => $order_id ] ), $context );
 			return [
 				'success' => false,
 				'message' => 'ID da encomenda inválido.'
 			];
 		}
 		if (!$order) {
+			$logger->error( wp_json_encode( [ 'message' => 'Order not found', 'order_id' => $order_id ] ), $context );
 			return [
 				'success' => false,
 				'message' => 'Encomenda não encontrada.'
 			];
 		}
 
+		$logger->info( wp_json_encode( [ 'message' => 'Order retrieved successfully', 'order_id' => $order_id ] ), $context );
+
 		// Get client ID
-		$user_id = $order->get_user_id();
+		$client_id = $order->get_user_id();
+		$logger->info( wp_json_encode( [ 'message' => 'Client ID from order', 'client_id' => $client_id ] ), $context );
 
-			// $user_id = 0 --> CONSUMIDOR FINAL
+			// $client_id = 0 --> CONSUMIDOR FINAL
 			// Assumes this function returns either existing remote client ID or creates it
-			$client_id = $client->gesfaturacao_sync_client_with_api( $user_id, $order_id );
+			$client_id = $client->gesfaturacao_sync_client_with_api( $client_id, $order_id );
+			$logger->info( wp_json_encode( [ 'message' => 'Client synced with API', 'client_id' => $client_id ] ), $context );
 
 
+
+		$logger->info( wp_json_encode( [ 'message' => 'Starting to build lines from order items' ] ), $context );
 
 		// Build lines from order items
 		$lines = [];
+		$logger->info( wp_json_encode( [ 'message' => 'Order items count', 'count' => count($order->get_items()) ] ), $context );
 		foreach ($order->get_items() as $item) {
+			$logger->info( wp_json_encode( [ 'message' => 'Processing order item', 'item_id' => $item->get_id(), 'product_id' => $item->get_product_id() ] ), $context );
 			$product = $item->get_product();
 
 			if (!$product) continue;
@@ -73,36 +84,58 @@ class GesFaturacao_Invoice_Helper {
 					break;
 				}
 			}*/
-			$tax_data = $item->get_taxes();
+		$tax_data = $item->get_taxes();
 
-			$rate_percent = 0;
-			$item_price_without_VAT=0;
-			if ( ! empty( array_filter( $tax_data['total'] ) ) ) {
-				foreach ( $tax_data['total'] as $rate_id => $tax_amount ) {
-					// Try fetching tax rate from WooCommerce DB
-					$rate_str = WC_Tax::get_rate_percent( $rate_id );
-					$rate_percent = floatval( rtrim( $rate_str, '%' ) );
+		$rate_percent = 0;
+		$item_price_without_VAT = 0;
 
-					// If rate_percent is still 0, calculate it manually
-					$subtotal = floatval($item->get_subtotal());
-					$tax_amount = floatval($tax_amount);
+		if ( ! empty( array_filter( $tax_data['total'] ) ) ) {
+			foreach ( $tax_data['total'] as $rate_id => $tax_amount ) {
+				// Tenta buscar a taxa do WC
+				$rate_str = WC_Tax::get_rate_percent( $rate_id );
+				$rate_percent = floatval( rtrim( $rate_str, '%' ) );
 
-						if ( $subtotal > 0 ) {
-							$item_price_without_VAT = $subtotal;
-							$rate_percent = ( $tax_amount / $subtotal ) * 100;
-						}
-					break; // Assuming you only need the first tax rate
+				// Calcula manualmente se não existir taxa
+				$subtotal   = floatval( $item->get_subtotal() );
+				$tax_amount = floatval( $tax_amount );
+
+				if ( $subtotal > 0 ) {
+					$item_price_without_VAT = $subtotal;
+					$rate_percent = ( $tax_amount / $subtotal ) * 100;
 				}
-			}else{
-				$item_price_without_VAT = $item->get_total();
-				$rate_percent=0;
+
+				$logger->info(
+					wp_json_encode( [
+						'msg'         => 'Taxas calculadas',
+						'rate_id'     => $rate_id,
+						'rate_percent'=> $rate_percent,
+						'subtotal'    => $subtotal,
+						'tax_amount'  => $tax_amount,
+						'tax_data'    => $tax_data,
+					] ),
+					$context
+				);
+
+				break; // Só usa a primeira taxa
 			}
+		} else {
+			$item_price_without_VAT = floatval( $item->get_total() );
+			$rate_percent = 0;
+
+			$logger->info(
+				wp_json_encode( [
+					'msg'       => 'Item sem impostos',
+					'total'     => $item_price_without_VAT,
+					'tax_data'  => $tax_data,
+				] ),
+				$context
+			);
+		}
 
 			//$tax_id = $this->get_tax_id($rate_percent);
 			$tax_id = 0;
 			$taxes = $api->get_taxes();
 			$taxes_array = $taxes['data'];
-			//cycles through the api response and finds the id of the tax that has the same value of $tax_rate
 			foreach ($taxes_array as $tax) {
 				if (floatval($tax['value']) == round($rate_percent, 2)) {
 					$tax_id = $tax['id'];
@@ -150,6 +183,10 @@ class GesFaturacao_Invoice_Helper {
 
 			if (!$product_id) {
 				$product_id = $products->create_product($product->get_id(),$tax_id);
+				if (!$product_id) {
+					$logger->error( wp_json_encode( [ 'message' => 'Failed to create product', 'product_id' => $product->get_id() ] ), $context );
+					continue; // Skip this product if creation failed
+				}
 			}
 
 			$quantity = $item->get_quantity();
@@ -165,33 +202,28 @@ class GesFaturacao_Invoice_Helper {
 				'tax' => $tax_id,
 				'exemption' => 0,
 				'discount' => 0,
-				'retention' => 0
+				'retention' => 0,
+				'unit' => 1,
+				'type' => 'P'
 			];
 		}
 
-		$missing_exemptions = [];
-		foreach ($lines as $index => $line) {
-			if ($line['tax'] == 4 && empty($line['exemption'])) {
-				$missing_exemptions[] = [
-					'product_id' => $line['id'],
-					'product_name' => $line['description'],
-					'line_index' => $index
-				];
-			}
+		// Exemption check removed for create_invoice_from_order method
+		// Use create_invoice_from_order_with_exemptions for handling exemptions
+
+		// Add shipping line if exists
+		$shipping_helper = new GesFaturacao_Shipping_Helper();
+		$shipping_line = $shipping_helper->get_shipping_line($order_id);
+		if ($shipping_line) {
+			$lines[] = $shipping_line;
+			$logger->info( wp_json_encode( [ 'message' => 'Shipping line added', 'shipping_line' => $shipping_line ] ), $context );
+		} else {
+			$logger->info( wp_json_encode( [ 'message' => 'No shipping line added' ] ), $context );
 		}
 
-		if (!empty($missing_exemptions)) {
-				echo json_encode([
-					'success' => false,
-					'error_code' => 'missing_exemption_reasons',
-					'message' => 'Faltam motivos de isenção para alguns produtos.',
-					'order_id' => $order_id,
-					'missing_data' => $missing_exemptions,
-					'exemption_data' => $api->get_exemption_reason()
-				]);
-				wp_die();
-			}
+		$logger->info( wp_json_encode( [ 'message' => 'Lines built for invoice', 'lines_count' => count($lines) ] ), $context );
 
+		$logger->info( wp_json_encode( [ 'message' => 'Calling API to create invoice' ] ), $context );
 
 		//Get the GESFaturacao options from the WP_Options table
 		$options = get_option( 'gesfaturacao_options', [] );
@@ -232,10 +264,11 @@ class GesFaturacao_Invoice_Helper {
 			'finalize' => (bool)$finalize_invoice,
 		];
 
+		$logger->info( wp_json_encode( [ 'lines' => $lines ] ), $context );
+		$logger->info( wp_json_encode( [ 'invoice_data' => $invoice_data ] ), $context );
+
 		$api_result = $api->create_invoice( $invoice_data );
 
-
-		// 9) Handle API response
 		if ( is_wp_error( $api_result ) ) {
 			$response_data = $api_result->get_error_data();
 
@@ -251,20 +284,23 @@ class GesFaturacao_Invoice_Helper {
 				'message' => $error_message,
 			];
 		} else {
-			//Code 200
+			
 			$response =$api_result['data'];
-			// 10) Save invoice in custom table
+			$logger->info( wp_json_encode( [ 'message' => 'Invoice created successfully', 'invoice_id' => $response['id'], 'invoice_number' => $response['number'] ] ), $context );
+
 			$table_invoices = $wpdb->prefix . 'gesfaturacao_invoices';
 
 			$wpdb->insert(
 				$table_invoices,
 				[
 					'order_id'       => $order_id,
-					'invoice_id'     => $response['id'],         
-					'invoice_number' => $response['number'],   
+					'invoice_id'     => $response['id'],
+					'invoice_number' => $response['number'],
 					'created_at'     => current_time( 'mysql' ),
 				]
 			);
+
+			$logger->info( wp_json_encode( [ 'message' => 'Invoice saved to database', 'order_id' => $order_id ] ), $context );
 
 			return [
 				'success'        => true,
@@ -309,11 +345,11 @@ class GesFaturacao_Invoice_Helper {
 		}
 
 		// Get client ID
-		$user_id = $order->get_user_id();
+		$client_id = $order->get_user_id();
 
-			// $user_id = 0 --> CONSUMIDOR FINAL
+			// $client_id = 0 --> CONSUMIDOR FINAL
 			// Assumes this function returns either existing remote client ID or creates it
-			$client_id = $client->gesfaturacao_sync_client_with_api( $user_id, $order_id );
+			$client_id = $client->gesfaturacao_sync_client_with_api( $client_id, $order_id );
 
 
 		// Build lines from order items
@@ -410,6 +446,12 @@ class GesFaturacao_Invoice_Helper {
 		}
 		unset($line);
 
+		// Add shipping line if exists
+		$shipping_helper = new GesFaturacao_Shipping_Helper();
+		$shipping_line = $shipping_helper->get_shipping_line($order_id);
+		if ($shipping_line) {
+			$lines[] = $shipping_line;
+		}
 
 		//Get the GESFaturacao options from the WP_Options table
 		$options = get_option( 'gesfaturacao_options', [] );
@@ -451,6 +493,10 @@ class GesFaturacao_Invoice_Helper {
 
 		$logger->info( wp_json_encode( [ 'lines' => $lines ] ), $context );
 		$logger->info( wp_json_encode( [ 'invoice_data' => $invoice_data ] ), $context );
+
+		$logger->info( wp_json_encode( [ 'message' => 'Calling API to create invoice' ] ), $context );
+		$api_result = $api->create_invoice( $invoice_data );
+		$logger->info( wp_json_encode( [ 'message' => 'API call completed', 'api_result_success' => !is_wp_error($api_result) ] ), $context );
 
 		// 9) Handle API response
 		if ( is_wp_error( $api_result ) ) {
