@@ -162,8 +162,8 @@ class GesFaturacao_API {
 	 *
 	 * @return mixed Client ID or WP_Error
 	 */
-	public function check_client_exists($vat, $name) {
-		return $this->request( "clients/tin/search/{$vat}/{$name}", 'GET' );
+	public function check_client_exists($vat_number, $name) {
+		return $this->request( "clients/tin/search/" . rawurlencode($vat_number) . "/" . rawurlencode($name), 'GET' );
 	}
 
 	/**

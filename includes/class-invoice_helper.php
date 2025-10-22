@@ -19,6 +19,11 @@ class GesFaturacao_Invoice_Helper {
 		$api = new GesFaturacao_API();
 		$products = new GESFaturacao_product_helper();
 		$client = new GESFaturacao_client_helper();
+				
+		$logger = wc_get_logger();
+		$context = array( 'source' => 'Receipt Invoice logs' );
+
+		error_log( 'GESF: Debug: create_invoice_from_order called for order_id = ' . print_r( $order_id, true ) );
 
 		// Get WooCommerce order
 		$order = wc_get_order($order_id);
@@ -425,7 +430,6 @@ class GesFaturacao_Invoice_Helper {
 			$ges_bank_id = $mapping['ges_bank_id'];
 			$needs_bank = !empty($ges_bank_id);
 		} else {
-			// Default if no mapping found
 			$ges_payment_id = '2';
 			$ges_bank_id = null;
 			$needs_bank = false;
@@ -445,8 +449,8 @@ class GesFaturacao_Invoice_Helper {
 			'finalize' => (bool)$finalize_invoice,
 		];
 
-		$api_result = $api->create_invoice( $invoice_data );
-
+		$logger->info( wp_json_encode( [ 'lines' => $lines ] ), $context );
+		$logger->info( wp_json_encode( [ 'invoice_data' => $invoice_data ] ), $context );
 
 		// 9) Handle API response
 		if ( is_wp_error( $api_result ) ) {

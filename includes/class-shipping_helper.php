@@ -14,7 +14,6 @@ class GesFaturacao_Shipping_Helper {
         $product_id = isset($options['shipping']) ? intval($options['shipping']) : null;
 
         if (!$product_id) {
-            error_log('Shipping product ID not set in options.');
             return null;
         }
 
@@ -58,20 +57,24 @@ class GesFaturacao_Shipping_Helper {
         $products_helper = new GESFaturacao_product_helper();
         $api_product_id = $products_helper->check_product_code($shipping_product_id);
         if (!$api_product_id) {
-            // Create shipping product in API if not exists
             $tax_id = 1; // Assume tax 1 for shipping
-            $api_product_id = $products_helper->create_product($shipping_product_id, $tax_id, 'S');
+            $api_product_id = $products_helper->create_product($shipping_product_id, $tax_id, 'P');
         }
 
+        $options = get_option('gesfaturacao_options', []);
+        $shipping_name = isset($options['shipping_name']) ? $options['shipping_name'] : $order->get_shipping_method();
+
         return [
-            'code' => $shipping_product_id,
-            'description' => $order->get_shipping_method(),
+            'id' => intval($api_product_id),
+            'description' => substr($shipping_name, 0, 100),
             'quantity' => 1,
-            'price' => $shipping_cost,
-            'tax' => 1, // Tax is handled in the product creation
+            'price' => floatval($shipping_cost),
+            'tax' => 1, 
+            'discount' => 0.0,
+            'retention' => 0.0,
             'exemption' => 0,
-            'discount' => 0,
-            'retention' => 0
+            'unit' => 1,
+            'type' => 'P'
         ];
     }
 }
