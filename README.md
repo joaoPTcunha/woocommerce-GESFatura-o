@@ -1,1 +1,1 @@
-"# woocommerce-GESFatura-o" 
+"# woocommerce-GESFatura-o"

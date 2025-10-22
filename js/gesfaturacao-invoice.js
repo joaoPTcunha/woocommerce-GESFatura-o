@@ -1,4 +1,3 @@
-console.log("gesfaturacao-invoice.js loaded");
 jQuery(document).ready(function ($) {
   let modal_email = $("#emailModal");
   let modal_exemption = $("#exemptionModal");

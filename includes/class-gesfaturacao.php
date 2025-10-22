@@ -50,61 +50,63 @@ class GESFaturacao {
 }
 
 function gesfaturacao_create_invoice_and_payment_map_table() {
-	global $wpdb;
+    global $wpdb;
 
-	$charset_collate = $wpdb->get_charset_collate();
+    $charset_collate = $wpdb->get_charset_collate();
 
-	// Create gesfaturacao_invoices table
-	$table_name_invoices = $wpdb->prefix . 'gesfaturacao_invoices';
-	$sql_invoices = "CREATE TABLE $table_name_invoices (
-		id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-		order_id BIGINT(20) UNSIGNED NOT NULL,
-		invoice_id VARCHAR(100) NOT NULL,
-		invoice_number VARCHAR(100) NOT NULL,
-		sent_email TINYINT NOT NULL DEFAULT 0,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		PRIMARY KEY (id),
-		UNIQUE KEY order_id (order_id)
-	) $charset_collate;";
+    $table_name_invoices = $wpdb->prefix . 'gesfaturacao_invoices';
+    $sql_invoices = "CREATE TABLE $table_name_invoices (
+        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        order_id BIGINT(20) UNSIGNED NOT NULL,
+        invoice_id VARCHAR(100) NOT NULL,
+        invoice_number VARCHAR(100) NOT NULL,
+        sent_email TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY order_id (order_id)
+    ) $charset_collate;";
 
-	// Create gesfaturacao_payment_map table
-	$table_name_payment_map = $wpdb->prefix . 'gesfaturacao_payment_map';
-	$sql_payment_map = "CREATE TABLE $table_name_payment_map (
-		id_map int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
-		id_shop int(11) UNSIGNED NOT NULL,
-		module_name varchar(64) NOT NULL,
-		ges_payment_id varchar(64) DEFAULT NULL,
-		ges_bank_id varchar(64) DEFAULT NULL,
-		PRIMARY KEY (id_map),
-		UNIQUE KEY id_shop_module (id_shop, module_name)
-	) $charset_collate;";
+    $table_name_payment_map = $wpdb->prefix . 'gesfaturacao_payment_map';
+    $sql_payment_map = "CREATE TABLE $table_name_payment_map (
+        id_map int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+        id_shop int(11) UNSIGNED NOT NULL,
+        module_name varchar(64) NOT NULL,
+        ges_payment_id varchar(64) DEFAULT NULL,
+        ges_bank_id varchar(64) DEFAULT NULL,
+        PRIMARY KEY (id_map),
+        UNIQUE KEY id_shop_module (id_shop, module_name)
+    ) $charset_collate;";
 
-	require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
-	dbDelta( $sql_invoices );
-	dbDelta( $sql_payment_map );
+    require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+    dbDelta( $sql_invoices );
+    dbDelta( $sql_payment_map );
 
-	// Get available WooCommerce payment gateways
-	if ( class_exists( 'WC_Payment_Gateways' ) ) {
-		$payment_gateways = WC()->payment_gateways()->get_available_payment_gateways();
+    // Get distinct payment_method_title from wp_wc_orders
+    $payment_methods = $wpdb->get_col( "
+        SELECT DISTINCT payment_method_title
+        FROM {$wpdb->prefix}wc_orders
+        WHERE payment_method_title IS NOT NULL
+        AND payment_method_title <> ''
+    " );
 
-		// Populate gesfaturacao_payment_map with payment methods
-		foreach ( $payment_gateways as $gateway ) {
-			$gateway_id = $gateway->id;
+    foreach ( $payment_methods as $payment_method ) {
+        $exists = $wpdb->get_var( $wpdb->prepare( 
+            "SELECT id_map FROM $table_name_payment_map WHERE id_shop = %d AND module_name = %s", 
+            1, 
+            $payment_method 
+        ) );
 
-			// Check if already exists
-			$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id_map FROM $table_name_payment_map WHERE id_shop = 1 AND module_name = %s", $gateway_id ) );
-
-			if ( ! $exists ) {
-				$wpdb->insert(
-					$table_name_payment_map,
-					array(
-						'id_shop' => 1,
-						'module_name' => $gateway_id,
-						'ges_payment_id' => null,
-						'ges_bank_id' => null,
-					)
-				);
-			}
-		}
-	}
+        if ( ! $exists ) {
+            $wpdb->insert(
+                $table_name_payment_map,
+                array(
+                    'id_shop' => 1,
+                    'module_name' => $payment_method,
+                    'ges_payment_id' => null,
+                    'ges_bank_id' => null,
+                ),
+                array( '%d', '%s', '%s', '%s' )
+            );
+        }
+    }
 }

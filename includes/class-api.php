@@ -20,6 +20,7 @@ class GesFaturacao_API {
 		$this->finalize    = ! empty( $options['finalize'] ) ? true : false;
 		$this->email       = ! empty( $options['email'] ) ? true : false;
 		$this->serie       = isset( $options['serie'] ) ? sanitize_text_field( $options['serie'] ) : '';
+		$this->shipping    = isset( $options['shipping'] ) ? sanitize_text_field( $options['shipping'] ) : '';
 	}
 
 	/**
@@ -116,6 +117,14 @@ class GesFaturacao_API {
 	public function get_series() {
 		return $this->request( 'series', 'GET' );
 	}
+
+	/**
+	 * Get Shipping list from API
+	 */
+	public function get_shipping() {
+		return $this->request( 'products/type/service', 'GET' );
+	}
+
 
 	/**
 	 *  Create a new invoice

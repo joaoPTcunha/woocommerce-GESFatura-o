@@ -61,6 +61,7 @@ class GESFaturacao_Admin {
 					'token'       => '',
 					'api_version' => 'v1.0.4',
 					'serie'       => '',
+					'shipping'    => '',
 					'finalize'    => false,
 					'email'       => false,
 					'payment_map' => [],
@@ -113,6 +114,17 @@ class GESFaturacao_Admin {
 			'gesfaturacao-main',
 			'gesfaturacao_main_section'
 		);
+
+		// Shipping
+		add_settings_field(
+			'gesfaturacao_shipping',
+			'Produto de Portes de Envio',
+			[ $this, 'field_shipping_cb' ],
+			'gesfaturacao-main',
+			'gesfaturacao_main_section'
+		);
+
+
 
 		// Finalize
 		add_settings_field(
@@ -171,6 +183,7 @@ class GESFaturacao_Admin {
 		$sanitized['token'] = isset($input['token']) ? sanitize_text_field($input['token']) : '';
 		$sanitized['api_version'] = isset($input['api_version']) ? sanitize_text_field($input['api_version']) : 'v1.0.4';
 		$sanitized['serie'] = isset($input['serie']) ? sanitize_text_field($input['serie']) : '';
+		$sanitized['shipping'] = isset($input['shipping']) ? sanitize_text_field($input['shipping']) : '';
 		$sanitized['finalize'] = !empty($input['finalize']);
 		$sanitized['email'] = !empty($input['email']);
 		$sanitized['payment_map'] = isset($input['payment_map']) ? $input['payment_map'] : [];
@@ -450,7 +463,7 @@ class GESFaturacao_Admin {
 		$current = esc_attr( $opts['serie'] ?? '' );
 		$series = $api->get_series();
 		$series = $series['data'];
-		echo '<select name="gesfaturacao_options[serie]" id="ges_serie" 
+		echo '<select name="gesfaturacao_options[serie]" id="ges_serie"
                       style="width:100%; padding:5px; margin-bottom:10px;">';
 		if ( is_wp_error( $series ) ) {
 			echo '<option disabled>' . esc_html( $series->get_error_message() ) . '</option>';
@@ -467,6 +480,37 @@ class GESFaturacao_Admin {
 		}
 		echo '</select>';
 	}
+
+	/**
+	 * Field callback: Shipping product select
+	 */
+	public function field_shipping_cb() {
+		$api = new GESFaturacao_API();
+		$opts = get_option( $this->option_name );
+		$current = esc_attr( $opts['shipping'] ?? '' );
+		$shipping_products = $api->get_shipping();
+		echo '<select name="gesfaturacao_options[shipping]" id="ges_shipping"
+                      style="width:100%; padding:5px; margin-bottom:10px;">';
+		echo '<option value="">-- Selecionar produto de portes --</option>';
+		if ( is_wp_error( $shipping_products ) ) {
+			echo '<option disabled>' . esc_html( $shipping_products->get_error_message() ) . '</option>';
+		} else {
+			if ( isset( $shipping_products['data'] ) && is_array( $shipping_products['data'] ) ) {
+				foreach ( $shipping_products['data'] as $p ) {
+					$sel = ( intval( $current ) === intval( $p['id'] ) ) ? 'selected' : '';
+					printf(
+						'<option value="%s" %s>%s</option>',
+						esc_attr( $p['id'] ),
+						$sel,
+						esc_html( $p['description'] ?? $p['name'] )
+					);
+				}
+			}
+		}
+		echo '</select>';
+	}
+
+
 
 	/**
 	 * Field callback: Finalize checkbox
@@ -495,13 +539,11 @@ class GESFaturacao_Admin {
 		global $wpdb;
 		$table_name = $wpdb->prefix . 'gesfaturacao_payment_map';
 
-		// Get WooCommerce payment gateways
+		// Get distinct payment method names from the database
 		$wc_gateways = [];
-		if (class_exists('WC_Payment_Gateways')) {
-			$gateways = WC()->payment_gateways()->get_available_payment_gateways();
-			foreach ($gateways as $gateway) {
-				$wc_gateways[$gateway->id] = $gateway->title;
-			}
+		$results = $wpdb->get_col("SELECT DISTINCT module_name FROM $table_name WHERE id_shop = 1 AND module_name IS NOT NULL AND module_name != ''");
+		foreach ($results as $name) {
+			$wc_gateways[$name] = $name;
 		}
 
 		// Get GESFaturacao payment methods
@@ -522,7 +564,7 @@ class GESFaturacao_Admin {
 		if (!is_wp_error($ges_banks) && isset($ges_banks['data'])) {
 			foreach ($ges_banks['data'] as $bank) {
 				$ges_bank_options[$bank['id']] = $bank['name'];
-			}
+			}	
 		}
 
 		// Get current mappings
@@ -541,6 +583,8 @@ class GESFaturacao_Admin {
 		echo '<tbody>';
 
 		foreach ($wc_gateways as $wc_id => $wc_name) {
+			if (empty($wc_name)) continue;
+
 			$current_mapping = array_filter($mappings, function($map) use ($wc_id) {
 				return $map['module_name'] === $wc_id;
 			});
@@ -659,8 +703,8 @@ class GESFaturacao_Admin {
                 $(".notice.is-dismissible").fadeOut();
             }, 4000);
 
-            function initSelect2() {
-				$("#api_version, #ges_serie").select2({
+			function initSelect2() {
+				$("#api_version, #ges_serie, #ges_shipping").select2({
 					placeholder: "Escolha uma opção...",
                     width: "100%",
                     search: false,

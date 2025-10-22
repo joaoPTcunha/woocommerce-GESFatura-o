@@ -476,8 +476,8 @@ class GesFaturacao_Invoice_Helper {
 				$table_invoices,
 				[
 					'order_id'       => $order_id,
-					'invoice_id'     => $response['id'],         // from API
-					'invoice_number' => $response['number'],   // from API
+					'invoice_id'     => $response['id'],        
+					'invoice_number' => $response['number'],   
 					'created_at'     => current_time( 'mysql' ),
 				]
 			);

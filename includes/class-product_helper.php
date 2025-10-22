@@ -45,7 +45,7 @@ class GESFaturacao_product_helper
 	}
 
 
-	public function create_product($product_id, $tax_id) {
+	public function create_product($product_id, $tax_id, $type = 'P') {
 		global $wpdb;
 		$api = new GESFaturacao_API();
 
@@ -57,7 +57,7 @@ class GESFaturacao_product_helper
 		$product_data = [
 			'code' => "wc-$product_id",
 			'name' => $product->get_name(),
-			'type' => 'P',
+			'type' => $type,
 			'unit' => '1',//1 is UN
 			'pvp' => $product->get_price(), //1 is EUR
 			'tax' => $tax_id, //1 is 23% IVA
