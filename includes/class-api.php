@@ -163,8 +163,7 @@ class GesFaturacao_API {
 	 * @return mixed Client ID or WP_Error
 	 */
 	public function check_client_exists($vat_number, $name) {
-		$encoded_name = urlencode($name);
-		return $this->request( "clients/tin/search/{$vat_number}/{$encoded_name}", 'GET' );
+		return $this->request( "clients/tin/search/{$vat_number}/{$name}", 'GET' );
 	}
 
 	/**
@@ -173,9 +172,10 @@ class GesFaturacao_API {
 	 * @param array $client_data Invoice details per API spec
 	 * @return mixed API response or WP_Error
 	 */
-	public function create_client( array $client_data ) {
+	
+/* 	public function create_client( array $client_data ) {
 		return $this->request( 'clients', 'POST', $client_data);
-	}
+	} */
 
 
 	/**
