@@ -1,6 +1,6 @@
 <?php
 $api = new GESFaturacao_API();
-$response = $api->get_exemption_reason();
+$response = $api->get_exemption_reasons();
 $reasons = [];
 
 if ( ! is_wp_error( $response ) ) {

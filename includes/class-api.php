@@ -194,7 +194,7 @@ class GesFaturacao_API {
 	 * @return mixed API response or WP_Error
 	 */
 
-	public function get_exemption_reason() {
+	public function get_exemption_reasons() {
 		return $this->request( "/exemption-reasons", 'GET' );
 	}
 

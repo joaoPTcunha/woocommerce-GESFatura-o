@@ -10,6 +10,7 @@ class GESFaturacao_Main {
 		add_action('wp_ajax_generate_invoice', [$this, 'handle_generate_invoice']);
 		add_action('wp_ajax_get_invoice_pdf', [$this, 'handle_get_invoice_pdf']);
 		add_action('wp_ajax_email_invoice', [$this, 'handle_email_invoice']);
+		add_action('wp_ajax_create_invoice_from_order_with_exemptions', [$this, 'handle_create_invoice_from_order_with_exemptions']);
 
 
 	}
@@ -207,6 +208,27 @@ class GESFaturacao_Main {
 			}
 
 			wp_send_json_success($result);
+		}
+	}
+
+	public function handle_create_invoice_from_order_with_exemptions() {
+		//check_ajax_referer('gesfaturacao_nonce');
+
+		$order_id = intval($_POST['order_id']);
+		$exemptions = isset($_POST['exemption_reasons']) ? $_POST['exemption_reasons'] : [];
+
+		if (!$order_id) {
+			wp_send_json_error('Missing order ID');
+		}
+
+		// Call helper class
+		$invoice = new GesFaturacao_Invoice_Helper();
+		$result = $invoice->create_invoice_from_order($order_id, false, null, $exemptions);
+
+		if ($result['success']) {
+			wp_send_json_success($result);
+		} else {
+			wp_send_json_error(array_merge(['message' => $result['message'], 'error_code' => $result['error_code'] ?? ''], $result));
 		}
 	}
 
@@ -428,4 +450,3 @@ echo '
 ';
 	}
 }
-
