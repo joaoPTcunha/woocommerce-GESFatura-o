@@ -112,20 +112,20 @@ class GesFaturacao_Shipping_Helper {
         $shipping_name = $shipping_product['description'] ?? $shipping_product['name'];
         $shipping_code = $shipping_product['code'];
 
-        // 🔹 Aqui pegamos o valor **exatamente como está no WooCommerce**
         $cost = floatval($details[0]['cost'] ?? 0);       
 
         $tax_status = $details[0]['tax_status'] ?? 'Isento';
 
+     
         $tax_id = ($tax_status === 'Tributável') ? 1 : 4;
-        $exemption = ($tax_status === 'Tributável') ? 0 : 10;
+        $exemption = ($tax_id === 4) ? 10 : 0;
 
         $shipping_line = [
             'id' => $shipping_product_id,
             'code' => $shipping_code,
             'description' => substr($shipping_name, 0, 100),
             'quantity' => 1,
-            'price' => round($cost, 4), // ✅ envia o preço **exato dos portes**
+            'price' => round($cost, 4), 
             'tax' => $tax_id,
             'discount' => 0.0,
             'retention' => 0.0,
@@ -134,7 +134,6 @@ class GesFaturacao_Shipping_Helper {
             'type' => 'S'
         ];
 
-        // 🔹 LOG FINAL
         $logger->info(wp_json_encode([
             'message' => 'Linha de portes final para envio à fatura',
             'shipping_line' => $shipping_line
@@ -142,5 +141,4 @@ class GesFaturacao_Shipping_Helper {
 
         return $shipping_line;
     }
-
 }

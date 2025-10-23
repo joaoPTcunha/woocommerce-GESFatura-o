@@ -11,7 +11,7 @@ class GESFaturacao_Main {
 		add_action('wp_ajax_get_invoice_pdf', [$this, 'handle_get_invoice_pdf']);
 		add_action('wp_ajax_email_invoice', [$this, 'handle_email_invoice']);
 
-		add_action('wp_ajax_create_invoice_from_order_with_exemptions', [$this, 'create_invoice_from_order_with_exemptions_handler']);
+
 	}
 
 	// class-main.php
@@ -55,6 +55,7 @@ class GESFaturacao_Main {
 		$order_id = intval($_POST['order_id']);
 		$send_email = isset($_POST['send_email']) ? $_POST['send_email'] : '';
 		$email = isset($_POST['email']) ? $_POST['email'] : '';
+		$exemptions = isset($_POST['exemption_reasons']) ? $_POST['exemption_reasons'] : [];
 
 		if (!$order_id) {
 			wp_send_json_error('Missing order ID');
@@ -62,7 +63,7 @@ class GESFaturacao_Main {
 
 		// Call helper class
 		$invoice = new GesFaturacao_Invoice_Helper();
-		$result = $invoice->create_invoice_from_order($order_id);
+		$result = $invoice->create_invoice_from_order($order_id, $send_email, $email, $exemptions);
 
 		//If send email when creating invoice is checked in settings send the call to the api
 		$email_sent=false;
@@ -91,18 +92,12 @@ class GESFaturacao_Main {
 			//wp_send_json_success($result);
 			wp_send_json_success([/*'message' => $result['message'],*/ 'invoice_number' => $result['invoice_number'] ?? '','email_sent' => $email_sent]);
 		} else {
-			wp_send_json_error(['message' => $result['message'], 'error_code' => $result['error_code'] ?? '']);
+			wp_send_json_error(array_merge(['message' => $result['message'], 'error_code' => $result['error_code'] ?? ''], $result));
 		}
 	}
 
 
-	function create_invoice_from_order_with_exemptions_handler() {
-		// Instantiate your class if needed
-		$invoice_helper = new GesFaturacao_Invoice_Helper(); // adjust class name if needed
-		$response = $invoice_helper->create_invoice_from_order_with_exemptions();
 
-		wp_send_json($response);
-	}
 
 	public function handle_get_invoice_pdf() {
 		//check_ajax_referer('gesfaturacao_nonce');

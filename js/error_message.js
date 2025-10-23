@@ -19,8 +19,8 @@ function wpAdminNotice(message, type = "success") {
     jQuery(this).closest(".notice").fadeOut();
   });
 
-  // Auto‐dismiss after 4 seconds
+  // Auto‐dismiss after 10 seconds
   setTimeout(() => {
     jQuery(notice).fadeOut();
-  }, 5000);
+  }, 10000);
 }

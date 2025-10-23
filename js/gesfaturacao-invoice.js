@@ -86,11 +86,14 @@ jQuery(document).ready(function ($) {
             wpAdminNotice("Fatura criada", "success");
             $("#gesfaturacao-orders").DataTable().ajax.reload(null, false); // false = keep pagination
           } else {
-            if (response.error_code === "missing_exemption_reasons") {
+            if (
+              response.data &&
+              response.data.error_code === "missing_exemption_reasons"
+            ) {
               showExemptionModal(
-                response.order_id,
-                response.missing_data,
-                response.exemption_data.data
+                response.data.order_id,
+                response.data.missing_data,
+                response.data.exemption_data.data
               );
             } else {
               //show error
@@ -154,7 +157,6 @@ jQuery(document).ready(function ($) {
           closeEmailModal(modal_email);
         }, 500);
 
-        // Send AJAX request with custom email
         $.ajax({
           url: gesfaturacao_ajax.ajax_url,
           method: "POST",
@@ -171,7 +173,7 @@ jQuery(document).ready(function ($) {
             } else {
               wpAdminNotice(response.data.message, "error");
             }
-            $("#gesfaturacao-orders").DataTable().ajax.reload(null, false); // false = keep pagination
+            $("#gesfaturacao-orders").DataTable().ajax.reload(null, false);
           },
           error: function () {
             closeEmailModal(modal_email);
@@ -226,7 +228,7 @@ jQuery(document).ready(function ($) {
       url: gesfaturacao_ajax.ajax_url,
       method: "POST",
       data: {
-        action: "create_invoice_from_order_with_exemptions",
+        action: "generate_invoice",
         order_id: order_id,
         exemption_reasons: exemptions,
         security: gesfaturacao_ajax.nonce,

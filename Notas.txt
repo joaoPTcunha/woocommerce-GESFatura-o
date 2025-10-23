@@ -2,6 +2,6 @@
 #152 1+1(3€ de desconto apenas num produto)+ portes gratis = TOTAL(150,06€)
 #219 1+portes(10€ tributaveis) = TOTAL(153,75€)
 #220 1+portes(gratis) = TOTAL(115,00€)
+#246 1 + 1 (0% iva) + 1 + desconto de 10€ encomenda = TOTAL(46,49€)
 
 
-2025-10-22T17:31:07+00:00 Informação {"message":"Verificar se o cliente j\u00e1 existe","name":"Joao Cunha","vat":"\t999999990"}
