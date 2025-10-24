@@ -7,3 +7,5 @@
 #305 1 + 3 + (desconto geral 10€) = TOTAL (166,06€) (enviado desconto dividido em cada produto como no woocomerce)
 #311 2 + 1 + (desconto geral 5%) = TOTAL (427,12€) 
 #312 2 (desconto 3€ neste produto) + 1 = TOTAL (416,97€)
+#324 2 + portes gratis (100% desconto) = TOTAL (282,90€)
+#337 1 (desconto 3€ * quantidade) + 1 + 1 + 1 (13% iva) + portes gratis + ( descontos de 5% encomenda e 10€ encomenda) = TOTAL (697,04€)

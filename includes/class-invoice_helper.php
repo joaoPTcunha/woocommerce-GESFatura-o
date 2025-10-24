@@ -141,28 +141,89 @@ class GesFaturacao_Invoice_Helper {
         }
 
         // === 4. Portes de envio ===
-        if ($order->get_shipping_total() > 0) {
+        $discounted_shipping = (float) $order->get_shipping_total();
+        $shipping_methods = $order->get_shipping_methods();
+        if ($discounted_shipping > 0 || !empty($shipping_methods)) {
             $shipping_helper = new GesFaturacao_Shipping_Helper();
             $shipping_line = $shipping_helper->get_shipping_line($order_id);
 
             $shipping_tax_id = $taxMap[round($highest_tax_rate, 4)] ?? 1;
-            $shipping_cost = floatval($order->get_shipping_total());
+
+            // Get base shipping cost (before discounts) from shipping method configuration
+            $original_shipping = 0;
+            foreach ($shipping_methods as $shipping_item) {
+                $method_id = $shipping_item->get_method_id();
+                $instance_id = $shipping_item->get_instance_id();
+
+                // Get the shipping method instance to get base cost
+                $shipping_zone = WC_Shipping_Zones::get_zone_matching_package([]);
+                $shipping_methods_zone = $shipping_zone->get_shipping_methods();
+
+                foreach ($shipping_methods_zone as $method) {
+                    if ($method->id === $method_id && $method->instance_id == $instance_id) {
+                        $original_shipping += (float) $method->cost;
+                        break;
+                    }
+                }
+            }
+
+            // If we couldn't get base cost from method configuration, try to get from stored metadata
+            if ($original_shipping == 0) {
+                $shipping_details = $shipping_helper->get_shipping_details($order_id);
+                foreach ($shipping_details as $detail) {
+                    $original_shipping += (float) $detail['cost'];
+                }
+            }
+
+            // For free shipping, if original cost is still 0, we need to send a minimum value with 100% discount
+            if ($original_shipping == 0 && $discounted_shipping == 0) {
+                // Get the configured shipping cost for this method
+                foreach ($shipping_methods as $shipping_item) {
+                    $method_id = $shipping_item->get_method_id();
+                    $instance_id = $shipping_item->get_instance_id();
+
+                    $shipping_zone = WC_Shipping_Zones::get_zone_matching_package([]);
+                    $shipping_methods_zone = $shipping_zone->get_shipping_methods();
+
+                    foreach ($shipping_methods_zone as $method) {
+                        if ($method->id === $method_id && $method->instance_id == $instance_id) {
+                            $original_shipping = (float) $method->cost;
+                            break 2;
+                        }
+                    }
+                }
+
+                // If still 0, set a default minimum shipping cost for free shipping
+                if ($original_shipping == 0) {
+                    $original_shipping = 1.00; // Minimum value to send with 100% discount
+                }
+            }
+
+            // Calculate shipping discount percentage
+            $shipping_discount_percentage = 0;
+            if ($original_shipping > 0) {
+                $shipping_discount_amount = $original_shipping - $discounted_shipping;
+                $shipping_discount_percentage = round(($shipping_discount_amount / $original_shipping) * 100, 4);
+            }
+
+            // Price ex tax (assuming standard tax class for shipping)
+            $original_shipping_ex_tax = (float) wc_get_price_excluding_tax(null, ['price' => $original_shipping, 'tax_class' => 'standard']);
 
             $lines[] = [
                 'id' => $shipping_line['id'] ?? 'shipping_' . $order_id,
                 'code' => $shipping_line['code'] ?? 'SHIPPING',
                 'description' => $shipping_line['description'] ?? 'Portes de Envio',
                 'quantity' => 1,
-                'price' => round($shipping_cost, 2),
+                'price' => round($original_shipping_ex_tax, 4),
                 'tax' => $shipping_tax_id,
                 'exemption' => 0,
-                'discount' => 0,
+                'discount' => $shipping_discount_percentage,
                 'retention' => 0,
                 'unit' => 1,
                 'type' => 'S'
             ];
 
-            $logger->info(wp_json_encode(['message' => 'Linha de portes adicionada']), $context);
+            $logger->info(wp_json_encode(['message' => 'Linha de portes adicionada', 'original_shipping' => $original_shipping, 'discounted_shipping' => $discounted_shipping, 'discount_percentage' => $shipping_discount_percentage]), $context);
         }
 
         $logger->info(wp_json_encode(['message' => 'Linhas construídas', 'total_lines' => count($lines)]), $context);
