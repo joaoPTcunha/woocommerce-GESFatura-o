@@ -49,6 +49,13 @@ class GesFaturacao_Invoice_Helper {
         $highest_tax_rate = 0;
         $taxMap = [23.00 => 1, 13.00 => 2, 6.00 => 3, 0.00 => 4];
 
+        // Calculate total item discounts to avoid double-counting general discounts
+        $sum_item_discounts = 0;
+        foreach ($order->get_items() as $item) {
+            $sum_item_discounts += (float) $item->get_subtotal() - (float) $item->get_total();
+        }
+        $general_discount_amount = (float) $order->get_discount_total() - $sum_item_discounts;
+
         foreach ($order->get_items() as $item) {
             $product = $item->get_product();
             if (!$product) {
@@ -106,16 +113,10 @@ class GesFaturacao_Invoice_Helper {
             $regular_price = (float) $product->get_regular_price();
             $regular_price_ex_tax = wc_get_price_excluding_tax($product, ['price' => $regular_price]);
 
-            // Calculate effective discount percentage to reach current price
-            $final_price_per_unit = (float) $item->get_total() / $quantity;
-            $final_price_ex_tax = wc_get_price_excluding_tax($product, ['price' => $final_price_per_unit]);
+            // Start with no discount; product-specific discounts will be applied later by discount_helper
             $effective_discount = 0;
-            if ($regular_price_ex_tax > 0) {
-                $effective_discount = round((($regular_price_ex_tax - $final_price_ex_tax) / $regular_price_ex_tax) * 100, 4);
-            }
 
-            // Distribute general discount proportionally across products
-            $general_discount_amount = (float) $order->get_discount_total();
+            // Distribute remaining general discount proportionally across products
             if ($general_discount_amount > 0) {
                 $order_subtotal = (float) $order->get_subtotal();
                 $item_subtotal = (float) $item->get_subtotal();
