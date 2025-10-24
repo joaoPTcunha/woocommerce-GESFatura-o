@@ -18,193 +18,165 @@ class GesFaturacao_Invoice_Helper {
         $api = new GesFaturacao_API();
         $products = new GESFaturacao_product_helper();
         $client = new GESFaturacao_client_helper();
+        $discount_helper = new GesFaturacao_Discount_Helper();
 
         $logger = wc_get_logger();
-        $context = array('source' => 'Receipt Invoice logs');
+        $context = ['source' => 'GesFaturacao_Invoice_Helper'];
 
-        $logger->info(wp_json_encode(['message' => '-------------------------------------------------------', 'order_id' => $order_id]), $context);
+        $logger->info(wp_json_encode(['message' => '=== INÍCIO CRIAÇÃO FATURA ===', 'order_id' => $order_id]), $context);
 
-        // Get WooCommerce order
-        $order = wc_get_order($order_id);
-
+        // === 1. Validação inicial ===
         if (!function_exists('wc_get_order')) {
-            $logger->error(wp_json_encode(['message' => 'WooCommerce not active or loaded']), $context);
-            return [
-                'success' => false,
-                'message' => 'WooCommerce não está ativo ou carregado.'
-            ];
-        }
-        if (!$order_id) {
-            $logger->error(wp_json_encode(['message' => 'Invalid order ID', 'order_id' => $order_id]), $context);
-            return [
-                'success' => false,
-                'message' => 'ID da encomenda inválido.'
-            ];
-        }
-        if (!$order) {
-            $logger->error(wp_json_encode(['message' => 'Order not found', 'order_id' => $order_id]), $context);
-            return [
-                'success' => false,
-                'message' => 'Encomenda não encontrada.'
-            ];
+            $logger->error(wp_json_encode(['message' => 'WooCommerce não carregado']), $context);
+            return ['success' => false, 'message' => 'WooCommerce não está ativo.'];
         }
 
-        $logger->info(wp_json_encode(['message' => 'Order retrieved successfully', 'order_id' => $order_id]), $context);
+        if (!$order_id || !($order = wc_get_order($order_id))) {
+            $logger->error(wp_json_encode(['message' => 'Encomenda inválida ou não encontrada', 'order_id' => $order_id]), $context);
+            return ['success' => false, 'message' => 'Encomenda não encontrada.'];
+        }
 
-        // Get client ID
+        $logger->info(wp_json_encode(['message' => 'Encomenda carregada com sucesso', 'order_id' => $order_id]), $context);
+
+        // === 2. Cliente ===
         $client_id = $order->get_user_id();
-        $logger->info(wp_json_encode(['message' => 'Client ID from order', 'client_id' => $client_id]), $context);
-
-        // $client_id = 0 --> CONSUMIDOR FINAL
         $client_id = $client->gesfaturacao_sync_client_with_api($client_id, $order_id);
-        $logger->info(wp_json_encode(['message' => 'Client synced with API', 'client_id' => $client_id]), $context);
+        $logger->info(wp_json_encode(['message' => 'Cliente sincronizado', 'client_id' => $client_id]), $context);
 
-        $logger->info(wp_json_encode(['message' => 'Starting to build lines from order items']), $context);
-
-        // Build lines from order items
+        // === 3. Linhas de produtos ===
         $lines = [];
         $missing_exemptions = [];
-        $highest_tax_rate = 0; // Track the highest tax rate for shipping
-        $logger->info(wp_json_encode(['message' => 'Order items count', 'count' => count($order->get_items())]), $context);
+        $highest_tax_rate = 0;
+        $taxMap = [23.00 => 1, 13.00 => 2, 6.00 => 3, 0.00 => 4];
 
         foreach ($order->get_items() as $item) {
-            try {
-                $logger->info(wp_json_encode(['message' => 'Processing order item', 'item_id' => $item->get_id(), 'product_id' => $item->get_product_id()]), $context);
-                $product = $item->get_product();
+            $product = $item->get_product();
+            if (!$product) {
+                $logger->warning(wp_json_encode(['message' => 'Produto não encontrado', 'item_id' => $item->get_id()]), $context);
+                continue;
+            }
 
-                if (!$product) {
-                    $logger->warning(wp_json_encode(['message' => 'Product not found for item', 'item_id' => $item->get_id()]), $context);
+            // --- IVA ---
+            $tax_class = $product->get_tax_class();
+            $tax_rates = WC_Tax::get_rates_for_tax_class($tax_class);
+            $rate_percent = 0;
+
+            if (!empty($tax_rates)) {
+                $rate = reset($tax_rates);
+                $rate_percent = is_array($rate) ? floatval($rate['tax_rate']) : floatval($rate->tax_rate);
+            }
+
+            if ($rate_percent > $highest_tax_rate) {
+                $highest_tax_rate = $rate_percent;
+            }
+
+            $tax_id = $taxMap[round($rate_percent, 2)] ?? 1;
+            if (!isset($taxMap[round($rate_percent, 2)])) {
+                $logger->warning(wp_json_encode(['message' => 'Taxa desconhecida, usando 23%', 'rate' => $rate_percent]), $context);
+            }
+
+            // --- Isenção (IVA 0%) + Motivo ---
+            $exemption_id = 0;
+            if ($tax_id == 4) {
+                $wc_id = $item->get_product_id();
+                $api_product_id = $products->check_product_code($wc_id) ?: $products->create_product($wc_id, $tax_id);
+
+                if (!$api_product_id) {
+                    $logger->error(wp_json_encode(['message' => 'Falha ao criar produto 0% IVA', 'product_id' => $wc_id]), $context);
                     continue;
                 }
 
-                // Get tax percentage from WooCommerce product tax class
-                $tax_class = $product->get_tax_class();
-                $tax_rates = WC_Tax::get_rates_for_tax_class($tax_class);
-                $rate_percent = 0;
-                $item_price_without_VAT = floatval($item->get_subtotal());
-
-                if (!empty($tax_rates)) {
-                    $rate = reset($tax_rates);
-                    if (is_array($rate) && isset($rate['tax_rate'])) {
-                        $rate_percent = floatval($rate['tax_rate']);
-                    } elseif (is_object($rate) && isset($rate->tax_rate)) {
-                        $rate_percent = floatval($rate->tax_rate);
-                    } else {
-                        $logger->warning(wp_json_encode(['message' => 'Unexpected tax rate format', 'rate' => $rate]), $context);
-                    }
+                if (!empty($exemptions[$wc_id]) && $exemptions[$wc_id] > 0) {
+                    $exemption_id = intval($exemptions[$wc_id]);
+                } else {
+                    $missing_exemptions[] = ['product_id' => $wc_id, 'product_name' => $item->get_name()];
+                    $logger->warning(wp_json_encode(['message' => 'Falta motivo de isenção', 'product_id' => $wc_id]), $context);
                 }
+            }
 
-                $logger->info(
-                    wp_json_encode([
-                        'msg' => 'Taxa do produto',
-                        'tax_class' => $tax_class,
-                        'rate_percent' => $rate_percent,
-                        'item_price_without_VAT' => $item_price_without_VAT,
-                    ]),
-                    $context
-                );
-
-                // Update highest tax rate for shipping
-                if ($rate_percent > $highest_tax_rate) {
-                    $highest_tax_rate = $rate_percent;
-                }
-
-                // Map tax rate to tax ID
-                $taxMap = [23.00 => 1, 13.00 => 2, 6.00 => 3, 0.00 => 4];
-                $tax_id = $taxMap[round($rate_percent, 2)] ?? 1; // Default to 1 (23% VAT)
-
-                if (!isset($taxMap[round($rate_percent, 2)])) {
-                    $logger->warning(wp_json_encode(['message' => 'Unknown tax rate, defaulting to 23%', 'rate_percent' => $rate_percent]), $context);
-                }
-
-                // Check for tax ID 4 (0% VAT) and handle exemptions
-                $exemption_id = 0;
-                if ($tax_id == 4) {
-                    $woocommerce_id = $item->get_product_id();
-                    $api_product_id = $products->check_product_code($woocommerce_id);
-                    if (!$api_product_id) {
-                        $api_product_id = $products->create_product($woocommerce_id, $tax_id);
-                        if (!$api_product_id) {
-                            $logger->error(wp_json_encode(['message' => 'Failed to create product', 'product_id' => $woocommerce_id]), $context);
-                            continue;
-                        }
-                    }
-
-                    // Check if exemption reason is provided and valid (not 0)
-                    if (isset($exemptions[$woocommerce_id]) && intval($exemptions[$woocommerce_id]) > 0) {
-                        $exemption_id = intval($exemptions[$woocommerce_id]);
-                    } else {
-                        // Collect missing exemption for modal
-                        $missing_exemptions[] = [
-                            'product_id' => $woocommerce_id,
-                            'product_name' => $item->get_name(),
-                        ];
-                        $logger->warning(wp_json_encode(['message' => 'Missing exemption reason for 0% VAT product', 'product_id' => $woocommerce_id]), $context);
-                        $exemption_id = 0;
-                    }
-                }
-
-                // Product code check/create
-                $product_id = $products->check_product_code($product->get_id());
-                if (!$product_id) {
-                    $product_id = $products->create_product($product->get_id(), $tax_id);
-                    if (!$product_id) {
-                        $logger->error(wp_json_encode(['message' => 'Failed to create product', 'product_id' => $product->get_id()]), $context);
-                        continue;
-                    }
-                }
-
-                $quantity = $item->get_quantity();
-                $unit_price_without_vat = wc_get_price_excluding_tax($product, ['qty' => $quantity]);
-
-                $lines[] = [
-                    'id' => $product_id,
-                    'description' => $item->get_name(),
-                    'quantity' => $quantity,
-                    'price' => $item_price_without_VAT,
-                    'tax' => $tax_id, // Use correct tax_id (string)
-                    'exemption' => $exemption_id,
-                    'discount' => 0,
-                    'retention' => 0,
-                    'unit' => 1,
-                    'type' => 'P'
-                ];
-            } catch (Exception $e) {
-                $logger->error(wp_json_encode(['message' => 'Error processing order item', 'item_id' => $item->get_id(), 'error' => $e->getMessage()]), $context);
+            // --- Produto na API ---
+            $product_id = $products->check_product_code($product->get_id()) ?: $products->create_product($product->get_id(), $tax_id);
+            if (!$product_id) {
+                $logger->error(wp_json_encode(['message' => 'Falha ao criar produto', 'product_id' => $product->get_id()]), $context);
                 continue;
             }
+
+            // --- Preço sem IVA (base para linha) ---
+            $quantity = $item->get_quantity();
+            $regular_price = (float) $product->get_regular_price();
+            $regular_price_ex_tax = wc_get_price_excluding_tax($product, ['price' => $regular_price]);
+
+            // Calculate effective discount percentage to reach current price
+            $final_price_per_unit = (float) $item->get_total() / $quantity;
+            $final_price_ex_tax = wc_get_price_excluding_tax($product, ['price' => $final_price_per_unit]);
+            $effective_discount = 0;
+            if ($regular_price_ex_tax > 0) {
+                $effective_discount = round((($regular_price_ex_tax - $final_price_ex_tax) / $regular_price_ex_tax) * 100, 4);
+            }
+
+            // Distribute general discount proportionally across products
+            $general_discount_amount = (float) $order->get_discount_total();
+            if ($general_discount_amount > 0) {
+                $order_subtotal = (float) $order->get_subtotal();
+                $item_subtotal = (float) $item->get_subtotal();
+                $proportional_general_discount = ($item_subtotal / $order_subtotal) * $general_discount_amount;
+                $proportional_general_discount_ex_tax = wc_get_price_excluding_tax($product, ['price' => $proportional_general_discount / $quantity]);
+                $general_discount_percentage = ($regular_price_ex_tax > 0) ? round(($proportional_general_discount_ex_tax / $regular_price_ex_tax) * 100, 4) : 0;
+                $effective_discount += $general_discount_percentage;
+            }
+
+            $lines[] = [
+                'id' => $product_id,
+                'description' => $item->get_name(),
+                'quantity' => $quantity,
+                'price' => round($regular_price_ex_tax, 4),
+                'tax' => $tax_id,
+                'exemption' => $exemption_id,
+                'discount' => $effective_discount,
+                'retention' => 0,
+                'unit' => 1,
+                'type' => 'P'
+            ];
         }
 
-        // Add shipping line if exists
-        $shipping_helper = new GesFaturacao_Shipping_Helper();
-        $shipping_line = $shipping_helper->get_shipping_line($order_id);
+        // === 4. Portes de envio ===
         if ($order->get_shipping_total() > 0) {
-            $shipping_tax_id = $taxMap[round($highest_tax_rate, 2)] ?? 1; // Default to 23% (Normal) for shipping
+            $shipping_helper = new GesFaturacao_Shipping_Helper();
+            $shipping_line = $shipping_helper->get_shipping_line($order_id);
 
-            $shipping_cost = floatval($order->get_shipping_total()); // Get shipping cost without VAT
+            $shipping_tax_id = $taxMap[round($highest_tax_rate, 4)] ?? 1;
+            $shipping_cost = floatval($order->get_shipping_total());
+
             $lines[] = [
-                'id' => $shipping_line ? $shipping_line['id'] : 'shipping_' . $order_id,
-                'code' => $shipping_line ? $shipping_line['code'] : 'SHIPPING',
-                'description' => $shipping_line ? $shipping_line['description'] : 'Portes de Envio',
+                'id' => $shipping_line['id'] ?? 'shipping_' . $order_id,
+                'code' => $shipping_line['code'] ?? 'SHIPPING',
+                'description' => $shipping_line['description'] ?? 'Portes de Envio',
                 'quantity' => 1,
-                'price' => $shipping_cost,
-                'tax' => $shipping_tax_id, // Use highest tax rate
+                'price' => round($shipping_cost, 2),
+                'tax' => $shipping_tax_id,
                 'exemption' => 0,
                 'discount' => 0,
                 'retention' => 0,
                 'unit' => 1,
                 'type' => 'S'
             ];
-            $logger->info(wp_json_encode(['message' => 'Shipping line added', 'shipping_line' => $lines[count($lines) - 1]]), $context);
-        } else {
-            $logger->info(wp_json_encode(['message' => 'No shipping line added']), $context);
+
+            $logger->info(wp_json_encode(['message' => 'Linha de portes adicionada']), $context);
         }
 
-        $logger->info(wp_json_encode(['message' => 'Lines built for invoice', 'lines_count' => count($lines)]), $context);
+        $logger->info(wp_json_encode(['message' => 'Linhas construídas', 'total_lines' => count($lines)]), $context);
 
-        // Check if there are missing exemptions before proceeding
+        // === 5. PROCESSAR DESCONTOS ===
+        $general_discount_percentage = $discount_helper->process_order_discounts($order, $lines);
+
+        $logger->info(wp_json_encode([
+            'message' => 'Descontos aplicados',
+            'general_discount' => $general_discount_percentage,
+            'product_discounts' => array_filter($lines, fn($l) => ($l['discount'] ?? 0) > 0)
+        ]), $context);
+
+        // === 6. Verificar isenções pendentes ===
         if (!empty($missing_exemptions)) {
-            $api = new GesFaturacao_API();
             $exemption_reasons = $api->get_exemption_reasons();
             return [
                 'success' => false,
@@ -212,20 +184,18 @@ class GesFaturacao_Invoice_Helper {
                 'order_id' => $order_id,
                 'missing_data' => $missing_exemptions,
                 'exemption_data' => $exemption_reasons,
-                'message' => 'Produtos com IVA 0% necessitam de motivo de isenção.',
+                'message' => 'Faltam motivos de isenção para produtos com IVA 0%.'
             ];
         }
 
-        // Get GESFaturacao options
+        // === 7. Opções e pagamento ===
         $options = get_option('gesfaturacao_options', []);
-        $serie_id = $options['serie'];
-        $finalize_invoice = $options['finalize'];
-        $send_email_option = $options['email'];
+        $serie_id = $options['serie'] ?? '';
+        $finalize_invoice = !empty($options['finalize']);
+        $send_email_option = !empty($options['email']);
 
-        // Override send_email if custom_email is provided
         $send_email = $custom_email !== null ? $send_email : $send_email_option;
 
-        // Get payment mapping from database
         $payment_method = $order->get_payment_method();
         $table_name = $wpdb->prefix . 'gesfaturacao_payment_map';
         $mapping = $wpdb->get_row($wpdb->prepare(
@@ -233,17 +203,11 @@ class GesFaturacao_Invoice_Helper {
             $payment_method
         ), ARRAY_A);
 
-        if ($mapping) {
-            $ges_payment_id = $mapping['ges_payment_id'];
-            $needs_bank = !empty($mapping['ges_bank_id']);
-            $ges_bank_id = $mapping['ges_bank_id'];
-        } else {
-            $ges_payment_id = '3';
-            $needs_bank = true;
-            $ges_bank_id = 1;
-        }
+        $ges_payment_id = $mapping['ges_payment_id'] ?? '3';
+        $needs_bank = !empty($mapping['ges_bank_id']);
+        $ges_bank_id = $mapping['ges_bank_id'] ?? 1;
 
-        // Prepare payload
+        // === 8. Payload da fatura ===
         $invoice_data = [
             'client' => $client_id,
             'serie' => $serie_id,
@@ -253,54 +217,50 @@ class GesFaturacao_Invoice_Helper {
             'payment' => $ges_payment_id,
             'needsBank' => $needs_bank,
             'bank' => $ges_bank_id,
-            'lines' => json_encode($lines),
-            'finalize' => (bool)$finalize_invoice,
+            'lines' => json_encode($lines, JSON_UNESCAPED_UNICODE),
+            'finalize' => $finalize_invoice,
+            'discount' => $general_discount_percentage 
         ];
 
-        $logger->info(wp_json_encode(['lines' => $lines]), $context);
-        $logger->info(wp_json_encode(['invoice_data' => $invoice_data]), $context);
-        $logger->info(wp_json_encode(['message' => 'Calling API to create invoice']), $context);
+        $logger->info(wp_json_encode(['message' => 'Payload preparado', 'invoice_data' => $invoice_data]), $context);
 
-        // Call API to create invoice
+        // === 9. Chamar API ===
         $api_result = $api->create_invoice($invoice_data);
-        $logger->info(wp_json_encode(['message' => 'API call completed', 'api_result_success' => !is_wp_error($api_result)]), $context);
 
         if (is_wp_error($api_result)) {
-            $response_data = $api_result->get_error_data();
-            $body = $response_data['body'] ?? null;
-            $decoded_body = json_decode($body, true);
-            $error_message = $decoded_body['errors']['message'] ?? 'Ocorreu um erro ao criar a fatura.';
+            $body = $api_result->get_error_data()['body'] ?? '';
+            $error = json_decode($body, true);
+            $msg = $error['errors']['message'] ?? 'Erro ao criar fatura.';
+
+            $logger->error(wp_json_encode(['message' => 'Erro na API', 'error' => $msg]), $context);
 
             return [
                 'success' => false,
-                'error_code' => $decoded_body['errors']['code'] ?? 'unknown_error',
-                'message' => $error_message,
+                'error_code' => $error['errors']['code'] ?? 'unknown',
+                'message' => $msg
             ];
         }
 
         $response = $api_result['data'];
-        $logger->info(wp_json_encode(['message' => 'Invoice created successfully', 'invoice_id' => $response['id'], 'invoice_number' => $response['number']]), $context);
+        $logger->info(wp_json_encode(['message' => 'Fatura criada', 'invoice_id' => $response['id'], 'number' => $response['number']]), $context);
 
-        // Save invoice in custom table
+        // === 10. Guardar na BD ===
         $table_invoices = $wpdb->prefix . 'gesfaturacao_invoices';
-        $wpdb->insert(
-            $table_invoices,
-            [
-                'order_id' => $order_id,
-                'invoice_id' => $response['id'],
-                'invoice_number' => $response['number'],
-                'created_at' => current_time('mysql'),
-            ]
-        );
+        $wpdb->insert($table_invoices, [
+            'order_id' => $order_id,
+            'invoice_id' => $response['id'],
+            'invoice_number' => $response['number'],
+            'created_at' => current_time('mysql')
+        ]);
 
-        $logger->info(wp_json_encode(['message' => 'Invoice saved to database', 'order_id' => $order_id]), $context);
+        $logger->info(wp_json_encode(['message' => 'Fatura guardada na BD']), $context);
 
         return [
             'success' => true,
             'invoice_id' => $response['id'],
             'invoice_number' => $response['number'],
             'order_id' => $order_id,
-            'send_email' => $send_email,
+            'send_email' => $send_email
         ];
     }
 }
